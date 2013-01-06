@@ -1,4 +1,6 @@
-(ns mlapp.core
+;; This is the number game, from 3.2 in the book.
+;;
+(ns mlapp.numbers-game
   (:use [incanter.charts :only [bar-chart]]
         [incanter.core   :only [pow view]]))
 
@@ -44,6 +46,7 @@
 (defn flat-prior [hypotheses hypothesis] (/ 1.0 (count hypotheses)))
 
 ;; This is defined in the matlab code as normalised [0.5 0.5 0.1...0.1 0.001 0.001]
+;; I don't like the way this is arranged as a vector, ie order counts.  Not good enough.
 (defn basic-prior [hypotheses hypothesis]
   (let [unnorm-prior (concat
                       [0.5 0.5]
