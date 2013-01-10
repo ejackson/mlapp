@@ -1,87 +1,104 @@
-;; This is the number game, from 3.2 in the book.
+;; This is the number game, from 3.2 in the book, using the flow engine
 ;;
 (ns mlapp.numbers-game-2
   (:use [incanter.charts :only [bar-chart]]
-        [incanter.core   :only [pow view]])
+        [incanter.core   :only [pow view]]
+        [clojure.set     :only [rename-keys]])
   (:require
-   [com.stuartsierra.flow :as flow]))
+   [mlapp.inflow :as inf]))
 
-;; Helpers
-(defn k-cat [s1 s2]
-  (keyword (str s1 (name s2))))
+;; -----------------------------------------------------------------------------
+;; Some helpful utilities
+(def max-num 100)
 
-(defn prior-key [id]
-  (k-cat "prior-" id))
+(defn <=Max [xs]
+  (->> xs
+       (take-while #(<= % max-num))
+       (map double)))
 
-(defn likelihood-fn-key [id]
-  (k-cat "likelihood-fn-" id))
+(defn to-hyp [xs]
+  (apply sorted-set (<=Max xs)))
 
-(defn likelihood-key [id]
-  (k-cat "likelihood-" id))
+;; -----------------------------------------------------------------------------
+;; Our collection of hypotheses.
+;; They work simply by giving the set of all members of the hypothesis
+;; These are just (sorted) sets, so inclusion of
+;; data in the set is a simple function application of the data the set.
 
-(defn unnorm-posterior-key [id]
-  (k-cat "unnorm-posterior-" id))
+;; All fns return a vector of a hypothesis identifier and the extension.
+;; All fns take one argument, needed or not, to parameterise the hypothesis
 
-(defn posterior-key [id]
-  (k-cat "posterior-" id))
+(defn- tag [b n]
+  (keyword (str (name b) "::" n)))
 
-(defn add-hypothesis [flow {:keys [id likelihood-fn prior] :as hypothesis}]
-  (let [prior-k              (prior-key id)
-        likelihood-fn-k      (likelihood-fn-key id)
-        likelihood-k         (likelihood-key id)
-        unnorm-posterior-k   (unnorm-posterior-key id)
-        posterior-k          (posterior-key id)]
-   (-> flow
-       (assoc prior-k                   (flow/flow-fn [] prior))
-       (assoc likelihood-fn-k           (flow/flow-fn [] likelihood-fn))
-       (assoc likelihood-k              (flow/with-inputs [likelihood-fn-k :data]
-                                          (fn [{data :data :as r}]
-                                            ((likelihood-fn-k r) data))))
-       (assoc unnorm-posterior-k        (flow/with-inputs [likelihood-k prior-k]
-                                          (fn [r]
-                                            (* (likelihood-k r) ((prior-key id) r)))))
-       (assoc (posterior-key id)        (flow/with-inputs [unnorm-posterior-k :norm]
-                                          (fn [r]
-                                            (/ (unnorm-posterior-k r) (:norm r))))))))
+(defn h-even [n]
+  [(tag :h-even n) (to-hyp (filter even? (range)))])
 
-(defn normalise-flow [flow hypotheses]
-  (assoc flow :norm (flow/with-inputs (vec (map (comp unnorm-posterior-key :id) the-hypotheses))
-                      (fn [r] (apply + (map #((-> % :id unnorm-posterior-key) r) hypotheses))))))
+(defn  h-odd  [n]
+  [(tag :h-odd n) (to-hyp (filter odd? (range)))])
 
-(defn add-hypotheses [flow hypotheses]
-  (reduce add-hypothesis (normalise-flow flow hypotheses) hypotheses))
+(defn h-mult [n]
+  [(tag :h-mult n) (to-hyp (map #(* n %) (range)))])
 
-;; ----------------------------------------------
+(defn h-pow [n]
+  [(tag :h-pow n) (to-hyp (map #(pow n %) (range)))])
 
-(defn construct-inference [hypotheses]
-  (add-hypotheses (flow/flow) hypotheses))
+(defn h-exp [n]
+  [(tag :h-exp n) (to-hyp (map #(pow % n) (range)))])
 
-(defn- inf-keys [id]
-  [(likelihood-key id)
-   (unnorm-posterior-key id)
-   (posterior-key id)])
+(defn h-ends [n]
+  [(tag :h-ends n) (to-hyp (range n max-num 10))])
 
-(defn infer [hypotheses data]
-  (let [inf-graph (construct-inference hypotheses)
-        inf       (flow/run inf-graph {:data data})]
-    (reduce
-     (fn [v {id :id :as h}]
-       (conj v
-             (merge h (select-keys inf (inf-keys id)))))
-     []
-     hypotheses)))
+(defn h-all [n]
+  [(tag :h-all n) (to-hyp (range))])
+
+;; These two should be written to be combinators, but lets not bother
+(defn h-pow2-and [k]
+  [(tag :h-pow2-and k) (conj (to-hyp (map #(pow 2 %) (range))) k)])
+
+(defn h-pow2-but [k]
+  [(tag :h-pow2-but k) (disj (to-hyp (map #(pow 2 %) (range))) k)])
+
+;; -----------------------------------------------------------------------------
+;;  Inference functions
+
+;; 1/|hypothesis|^|data| or 0.   Equation (3.2) pg 67.
+(defn flat-likelihood [extension]
+  (fn [data]
+    (if (every? extension data)
+      (pow (/ 1.0 (count extension)) (count data))
+      0.0)))
+
+;; Start by creating the hypothesis set, and giving it a namew
+(defn generate-hypothesis [prior hyp-fn param]
+  (let [[id extension] (hyp-fn param)]
+    {:id id
+     :likelihood-fn (flat-likelihood extension)
+     :prior prior}))
+
+;; Generate the set of hypotheses given in the book pg 69
+;; Note the priors are mapped in directly with the hypotheses-extensions
+;; The silly ordering is to make the pics comparable to those in the book
+(defn hypotheses-set []
+  (vec
+   (concat
+    [(generate-hypothesis 0.5 h-even nil)
+     (generate-hypothesis 0.5 h-odd nil)
+     (generate-hypothesis 0.1 h-exp 2)]
+    (map (partial generate-hypothesis 0.1 h-mult) (range 3 11))
+    (map (partial generate-hypothesis 0.1 h-ends) (range 1 10))
+    (map (partial generate-hypothesis 0.1 h-pow)  (range 2 11))
+    [(generate-hypothesis 0.1 h-all nil)
+     (generate-hypothesis 0.001 h-pow2-and 37)
+     (generate-hypothesis 0.001 h-pow2-but 32)])))
 
 (comment
   (use 'clojure.pprint)
+  (def q (hypotheses-set))
+  (def i (inf/infer q [16]))
+  (pprint i)
+  (view (bar-chart (map :id i) (map :likelihood i) :vertical false))
+  (view (bar-chart (map :id i) (map :posterior i) :vertical false))
 
-;; These likelihoods are whacked !
-(def the-hypotheses
-  [{:id :h1, :likelihood-fn inc :prior 2/3}
-   {:id :h2, :likelihood-fn dec :prior 1/3}
-   {:id :h3, :likelihood-fn dec :prior 1/3}
-   {:id :h4, :likelihood-fn dec :prior 1/3}])
-
-  (pprint (infer the-hypotheses 3))
-
-  (flow/write-dotfile (construct-inference the-hypotheses) "flow.dot")
+  (flow/write-dotfile (construct-inference q) "flow.dot")
   (comment dot -Tpng -o flow.png flow.dot))
