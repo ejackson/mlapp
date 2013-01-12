@@ -3,7 +3,7 @@
 (ns mlapp.numbers-game-2
   (:use [incanter.charts :only [bar-chart]]
         [incanter.core   :only [pow view]]
-        [clojure.set     :only [rename-keys]])
+        [clojure.set     :only [rename-keys union difference]])
   (:require
    [mlapp.inflow :as inf]))
 
@@ -28,8 +28,16 @@
 ;; All fns return a vector of a hypothesis identifier and the extension.
 ;; All fns take one argument, needed or not, to parameterise the hypothesis
 
-(defn- tag [b n]
-  (keyword (str (name b) "::" n)))
+(defn- tag
+  ([n]
+     (keyword (str n)))
+  ([b n]
+     (keyword (str (name b) "::" n))))
+
+(defn h-atom
+  "Assume a single value"
+  [n]
+  [(tag n) (to-hyp [n])])
 
 (defn h-even [n]
   [(tag :h-even n) (to-hyp (filter even? (range)))])
@@ -38,7 +46,7 @@
   [(tag :h-odd n) (to-hyp (filter odd? (range)))])
 
 (defn h-mult [n]
-  [(tag :h-mult n) (to-hyp (map #(* n %) (range)))])
+  [(tag :h-mult 3) (to-hyp (map #(* n %) (range)))])
 
 (defn h-pow [n]
   [(tag :h-pow n) (to-hyp (map #(pow n %) (range)))])
@@ -52,12 +60,24 @@
 (defn h-all [n]
   [(tag :h-all n) (to-hyp (range))])
 
+;; ----------- Extension operators
+(defn union-h
+  "Create an extension that is the union of two hypotheses"
+  [[n1 e1] [n2 e2]]
+  [(str n1 "-U-" n2)] (union e1 e2))
+
+(defn difference-h
+  "Create an extension that is the difference of two hypotheses. ORDER MATTERS"
+  [[n1 e1] [n2 e2]]
+  [(str n1 "-D-" n2) (difference e1 e2)])
+
+;; ---------- Compound extensions
 ;; These two should be written to be combinators, but lets not bother
 (defn h-pow2-and [k]
-  [(tag :h-pow2-and k) (conj (to-hyp (map #(pow 2 %) (range))) k)])
+  (union-h (h-pow 2) (h-atom k)))
 
 (defn h-pow2-but [k]
-  [(tag :h-pow2-but k) (disj (to-hyp (map #(pow 2 %) (range))) k)])
+  (difference-h (h-pow 2) (h-atom k)))
 
 ;; -----------------------------------------------------------------------------
 ;;  Inference functions
@@ -69,7 +89,7 @@
       (pow (/ 1.0 (count extension)) (count data))
       0.0)))
 
-;; Start by creating the hypothesis set, and giving it a namew
+;; Combine a likelihood function with a prior.
 (defn generate-hypothesis [prior hyp-fn param]
   (let [[id extension] (hyp-fn param)]
     {:id id
@@ -97,8 +117,10 @@
   (def q (hypotheses-set))
   (def i (inf/infer q [16]))
   (pprint i)
+  3
   (view (bar-chart (map :id i) (map :likelihood i) :vertical false))
   (view (bar-chart (map :id i) (map :posterior i) :vertical false))
 
+  ;; Have a look at the induced inference graph.  HAHAHA ITS HUUUUUUUUUGE.
   (flow/write-dotfile (construct-inference q) "flow.dot")
-  (comment dot -Tpng -o flow.png flow.dot))
+  "dot -Tpng -o flow.png flow.dot")
