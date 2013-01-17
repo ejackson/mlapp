@@ -6,4 +6,4 @@
   :dependencies [[org.clojure/clojure "1.5.0-RC1"]
                  [clatrix "0.2.0-SNAPSHOT"]
                  [incanter "1.4.0"]
-                 [com.stuartsierra/flow "0.1.0"]])
+                 [inflow "0.1.0-SNAPSHOT"]])
