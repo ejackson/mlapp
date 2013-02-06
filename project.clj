@@ -8,4 +8,5 @@
                  [incanter "1.4.0"]
                  [inflow "0.1.0-SNAPSHOT"]
                  [fs "1.3.2"]
+                 [prismatic/plumbing "0.0.1"]
                  [stemmers "0.2.1"]])
